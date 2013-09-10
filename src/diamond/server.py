@@ -7,6 +7,8 @@ import logging
 import traceback
 import configobj
 import inspect
+import imp
+import types
 
 # Path Fix
 sys.path.append(
@@ -141,7 +143,8 @@ class Server(object):
             if os.path.isdir(fpath):
                 self.load_include_path(fpath)
 
-    def load_collectors(self, path, filter=None):
+    def load_collectors(self, path, filter=None,
+                        mod_prefix='diamond._collectors'):
         """
         Scan for collectors to load from path
         """
@@ -155,6 +158,9 @@ class Server(object):
         if path.endswith('tests') or path.endswith('fixtures'):
             return collectors
 
+        if mod_prefix not in sys.modules:
+            sys.modules[mod_prefix] = types.ModuleType(mod_prefix)
+
         # Log
         self.log.debug("Loading Collectors from: %s", path)
 
@@ -164,7 +170,8 @@ class Server(object):
             # Are we a directory? If so process down the tree
             fpath = os.path.join(path, f)
             if os.path.isdir(fpath):
-                subcollectors = self.load_collectors(fpath)
+                subcollectors = self.load_collectors(
+                    fpath, mod_prefix=mod_prefix+'.'+f)
                 for key in subcollectors:
                     collectors[key] = subcollectors[key]
 
@@ -196,7 +203,7 @@ class Server(object):
 
                 try:
                     # Import the module
-                    mod = __import__(modname, globals(), locals(), ['*'])
+                    mod = self.load_module(modname, path, mod_prefix)
                 except ImportError:
                     # Log error
                     self.log.error("Failed to import module: %s. %s", modname,
@@ -219,7 +226,7 @@ class Server(object):
                         if attrname.startswith('parent_'):
                             continue
                         # Get class name
-                        fqcn = '.'.join([modname, attrname])
+                        fqcn = '.'.join([mod_prefix, modname, attrname])
                         try:
                             # Load Collector class
                             cls = self.load_collector(fqcn)
@@ -233,6 +240,20 @@ class Server(object):
 
         # Return Collector classes
         return collectors
+
+    def load_module(self, modname, path, mod_prefix):
+        full_modname = mod_prefix + '.' + modname
+        try:
+            return sys.modules[full_modname]
+        except KeyError:
+            pass
+
+        fp, pathname, description = imp.find_module(modname, [path])
+        try:
+            return imp.load_module(full_modname, fp, pathname, description)
+        finally:
+            if fp:
+                fp.close()
 
     def init_collector(self, cls):
         """

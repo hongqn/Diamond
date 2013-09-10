@@ -41,8 +41,9 @@ def load_class_from_name(fqcn):
     paths = fqcn.split('.')
     modulename = '.'.join(paths[:-1])
     classname = paths[-1]
-    # Import the module
-    __import__(modulename, globals(), locals(), ['*'])
+    if modulename not in sys.modules:
+        # Import the module
+        __import__(modulename, globals(), locals(), ['*'])
     # Get the class
     cls = getattr(sys.modules[modulename], classname)
     # Check cls
